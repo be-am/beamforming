@@ -1,0 +1,13 @@
+MV_BEAMFORMING 실험
+
+
+1. signal(즉 빔포밍하고 싶은 타겟)을 male voice로 했을 경우
+male voice의 주파수가 전체적으로 낮아서 male voice를 빔포밍하고자 하는 타겟으로 설정 했을 경우
+noise로 설정한 high frequency signal 인 female voice 와 합쳐져서 빔포밍 한 결과
+female voice의 음성들을 많이 무시하기 위한 작업에서 high frequency noise가 심하게 발생하는 현상을 확인 
+
+2. signal을 female voice로 했을 경우
+반대로 female voice를 주 신호로 잡고 저주파 신호인 male voice와 섞어서 빔포밍한 결과
+타겟 신호에 비해 주파수가 상대적으로 낮은 male voice에서는 noise가 크게 발생하지 않는 것을 확인   
+
+음성 출처 : https://www.youtube.com/watch?v=rkDQvd5ZbGw
