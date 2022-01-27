@@ -1,8 +1,3 @@
-"""
-This is a longer example that applies time domain beamforming towards a source
-of interest in the presence of a strong interfering source.
-"""
-
 from __future__ import division, print_function
 
 import os
@@ -12,6 +7,7 @@ from scipy.io import wavfile
 
 import pyroomacoustics as pra
 from pyroomacoustics.transform import stft
+import samplerate
 
 # Spectrogram figure properties
 figsize = (15, 7)  # figure size
@@ -29,7 +25,7 @@ sigma2_n = 5e-7
 
 # Microphone array design parameters
 mic1 = np.array([2, 1.5])  # position
-M = 8  # number of microphones
+M = 10  # number of microphones
 d = 0.08  # distance between microphones
 phi = 0.0  # angle from horizontal
 max_order_design = 1  # maximum image generation used in design
@@ -50,27 +46,38 @@ else:
 # path to samples
 path = os.path.dirname(__file__)    
 
-# The first signal (of interest) is singing
-rate1, signal1 = wavfile.read(path + "./input_samples/girl.wav")
+rate1, signal1 = wavfile.read(path + "/input/female_voice.wav")  # may spit out a warning when reading but it's alright!
 signal1 = np.array(signal1, dtype=float)
-signal1 = pra.normalize(signal1)
 signal1 = pra.highpass(signal1, Fs)
+signal1 = pra.normalize(signal1)
 delay1 = 0.0
 
-# The second signal (interferer) is some german speech
-rate2, signal2 = wavfile.read(path + "/input_samples/cafe.wav")
+rate2, signal2 = wavfile.read(path + "/input/male_voice.wav")
 signal2 = np.array(signal2, dtype=float)
-signal2 = pra.normalize(signal2)
 signal2 = pra.highpass(signal2, Fs)
+signal2 = pra.normalize(signal2)
 delay2 = 1.0
 
-#process for equrizaion two different signal
-signal = np.squeeze(signal1[:,0])
+signal1 = np.squeeze(signal1[:,0])
 signal2 = np.squeeze(signal2[:,0])
 
-sig_length = np.min([signal.shape[0], signal2.shape[0]])
-signal = signal[:sig_length]
-signal2 = signal2[:sig_length] 
+new_rate = 8000
+fs_ratio_s = new_rate / float(rate1)
+fs_ratio_n = new_rate / float(rate2)
+signal1 = samplerate.resample(signal1, fs_ratio_s, "sinc_best")
+signal2 = samplerate.resample(signal2, fs_ratio_n, "sinc_best")
+
+wavfile.write(path + "/output_samples/1.wav", Fs, signal1.astype(np.int16))
+wavfile.write(path + "/output_samples/2.wav", Fs, signal2.astype(np.int16))
+
+sig_length = np.min([signal1.shape[0], signal2.shape[0]])
+signal1 = signal1[:sig_length]
+signal2 = signal2[:sig_length]
+
+
+#process for equrizaion two different signal
+# signal1 = np.squeeze(signal1[:,0])
+# signal2 = np.squeeze(signal2[:,0])
 
 
 # Create the room
@@ -87,7 +94,7 @@ room1 = pra.ShoeBox(
 good_source = np.array([1, 4.5])  # good source
 normal_interferer = np.array([2.8, 4.3])  # interferer
 room1.add_source(good_source, signal=signal1, delay=delay1)
-room1.add_source(normal_interferer, signal=signal2, delay=delay2)
+room1.add_source(normal_interferer, signal=signal2, delay=delay1)
 
 """
 MVDR direct path only simulation
@@ -106,14 +113,14 @@ mics.rake_mvdr_filters(
 )
 
 # process the signal
-output = mics.process()
+output = mics.process(FD= False)
 
 # save to output file
 input_mic = pra.normalize(pra.highpass(mics.signals[mics.M // 2], Fs))
-wavfile.write(path + "/output_samples/input.wav", Fs, input_mic)
+wavfile.write(path + "/output_samples/input.wav", Fs, input_mic.astype(np.int8))
 
 out_DirectMVDR = pra.normalize(pra.highpass(output, Fs))
-wavfile.write(path + "/output_samples/output_DirectMVDR.wav", Fs, out_DirectMVDR)
+wavfile.write(path + "/output_samples/output_DirectMVDR.wav", Fs, out_DirectMVDR.astype(np.int8))
 
 
 """
@@ -137,55 +144,55 @@ mics.rake_mvdr_filters(
 output = mics.process()
 
 # save to output file
-out_RakeMVDR = pra.normalize(pra.highpass(output, Fs))
-wavfile.write(path + "/output_samples/output_RakeMVDR.wav", Fs, out_RakeMVDR)
+out_RakeMVDR = pra.normalize(pra.highpass(output, 3000))
+wavfile.write(path + "/output_samples/output_RakeMVDR.wav", Fs, out_RakeMVDR.astype(np.float32))
 
 """
 Perceptual direct path only simulation
 """
 
 # compute beamforming filters
-mics = pra.Beamformer(R, Fs, N, Lg=Lg)
-room1.mic_array = mics
-room1.compute_rir()
-room1.simulate()
-mics.rake_perceptual_filters(
-    room1.sources[0][0:1],
-    room1.sources[1][0:1],
-    sigma2_n * np.eye(mics.Lg * mics.M),
-    delay=delay,
-)
+# mics = pra.Beamformer(R, Fs, N, Lg=Lg)
+# room1.mic_array = mics
+# room1.compute_rir()
+# room1.simulate()
+# mics.rake_perceptual_filters(
+#     room1.sources[0][0:1],
+#     room1.sources[1][0:1],
+#     sigma2_n * np.eye(mics.Lg * mics.M),
+#     delay=delay,
+# )
 
-# process the signal
-output = mics.process()
+# # process the signal
+# output = mics.process()
 
-# save to output file
-out_DirectPerceptual = pra.normalize(pra.highpass(output, Fs))
-wavfile.write(
-    path + "/output_samples/output_DirectPerceptual.wav", Fs, out_DirectPerceptual
-)
+# # save to output file
+# out_DirectPerceptual = pra.normalize(pra.highpass(output, 3000))
+# wavfile.write(
+#     path + "/output_samples/output_DirectPerceptual.wav", Fs, out_DirectPerceptual.astype(np.int16)
+# )
 
-"""
-Rake Perceptual simulation
-"""
+# """
+# Rake Perceptual simulation
+# """
 
-# compute beamforming filters
-mics = pra.Beamformer(R, Fs, N, Lg=Lg)
-room1.mic_array = mics
-room1.compute_rir()
-room1.simulate()
-mics.rake_perceptual_filters(
-    good_sources, bad_sources, sigma2_n * np.eye(mics.Lg * mics.M), delay=delay
-)
+# # compute beamforming filters
+# mics = pra.Beamformer(R, Fs, N, Lg=Lg)
+# room1.mic_array = mics
+# room1.compute_rir()
+# room1.simulate()
+# mics.rake_perceptual_filters(
+#     good_sources, bad_sources, sigma2_n * np.eye(mics.Lg * mics.M), delay=delay
+# )
 
-# process the signal
-output = mics.process()
+# # process the signal
+# output = mics.process()
 
-# save to output file
-out_RakePerceptual = pra.normalize(pra.highpass(output, Fs))
-wavfile.write(
-    path + "/output_samples/output_RakePerceptual.wav", Fs, out_RakePerceptual
-)
+# # save to output file
+# out_RakePerceptual = pra.normalize(pra.highpass(output, 3000))
+# wavfile.write(
+#     path + "/output_samples/output_RakePerceptual.wav", Fs, out_RakePerceptual.astype(np.int16)
+# )
 
 """
 Plot all the spectrogram
@@ -200,8 +207,8 @@ input_clean = signal1[:n_lim]
 input_mic = input_mic[:n_lim]
 out_DirectMVDR = out_DirectMVDR[:n_lim]
 out_RakeMVDR = out_RakeMVDR[:n_lim]
-out_DirectPerceptual = out_DirectPerceptual[:n_lim]
-out_RakePerceptual = out_RakePerceptual[:n_lim]
+# out_DirectPerceptual = out_DirectPerceptual[:n_lim]
+# out_RakePerceptual = out_RakePerceptual[:n_lim]
 
 
 # compute time-frequency planes
@@ -211,12 +218,12 @@ F2 = stft.analysis(
     out_DirectMVDR, fft_size, fft_hop, win=analysis_window, zp_back=fft_zp
 )
 F3 = stft.analysis(out_RakeMVDR, fft_size, fft_hop, win=analysis_window, zp_back=fft_zp)
-F4 = stft.analysis(
-    out_DirectPerceptual, fft_size, fft_hop, win=analysis_window, zp_back=fft_zp
-)
-F5 = stft.analysis(
-    out_RakePerceptual, fft_size, fft_hop, win=analysis_window, zp_back=fft_zp
-)
+# F4 = stft.analysis(
+#     out_DirectPerceptual, fft_size, fft_hop, win=analysis_window, zp_back=fft_zp
+# )
+# F5 = stft.analysis(
+#     out_RakePerceptual, fft_size, fft_hop, win=analysis_window, zp_back=fft_zp
+# )
 
 # (not so) fancy way to set the scale to avoid having the spectrum
 # dominated by a few outliers
@@ -228,8 +235,8 @@ all_vals = np.concatenate(
         pra.dB(F2 + pra.eps),
         pra.dB(F3 + pra.eps),
         pra.dB(F0 + pra.eps),
-        pra.dB(F4 + pra.eps),
-        pra.dB(F5 + pra.eps),
+        # pra.dB(F4 + pra.eps),
+        # pra.dB(F5 + pra.eps),
     )
 ).flatten()
 vmin, vmax = np.percentile(all_vals, [p_min, p_max])
@@ -237,7 +244,7 @@ vmin, vmax = np.percentile(all_vals, [p_min, p_max])
 cmap = "afmhot"
 interpolation = "none"
 
-fig, ax = plt.subplots(figsize=figsize, nrows=2, ncols=3)
+fig, ax = plt.subplots(figsize=figsize, nrows=2, ncols=2)
 
 
 def plot_spectrogram(F, title):
@@ -256,25 +263,23 @@ def plot_spectrogram(F, title):
     ax.set_aspect("auto")
     ax.axis("off")
 
-
-ax = plt.subplot(2, 3, 1)
-plot_spectrogram(F0, "Desired Signal")
-
-ax = plt.subplot(2, 3, 4)
+ax = plt.subplot(2, 2, 1)
 plot_spectrogram(F1, "Microphone Input")
 
-ax = plt.subplot(2, 3, 2)
+ax = plt.subplot(2, 2, 2)
+plot_spectrogram(F0, "Desired Signal")
+
+ax = plt.subplot(2, 2, 3)
 plot_spectrogram(F2, "Direct MVDR")
 
-ax = plt.subplot(2, 3, 5)
+ax = plt.subplot(2, 2, 4)
 plot_spectrogram(F3, "Rake MVDR")
 
-ax = plt.subplot(2, 3, 3)
-plot_spectrogram(F4, "Direct Perceptual")
+# ax = plt.subplot(2, 3, 3)
+# plot_spectrogram(F4, "Direct Perceptual")
 
-ax = plt.subplot(2, 3, 6)
-plot_spectrogram(F5, "Rake Perceptual")
+# ax = plt.subplot(2, 3, 6)
+# plot_spectrogram(F5, "Rake Perceptual")
 
-fig.savefig(path + "/figures/spectrograms.png", dpi=150)
 
 plt.show()
