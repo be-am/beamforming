@@ -27,14 +27,6 @@ def resample(ori_rate,new_rate,signal):
 
 if __name__ == "__main__":
 
-    # Spectrogram figure properties
-    figsize = (15, 7)  # figure size
-    fft_size = 512  # fft size for analysis
-    fft_hop = 8  # hop between analysis frame
-    fft_zp = 512  # zero padding
-    analysis_window = pra.hann(fft_size)
-    t_cut = 0.83  # length in [s] to remove at end of signal (no sound)
-
     # Some simulation parameters
     Fs = 8000
     absorption = 0.1
@@ -106,9 +98,7 @@ if __name__ == "__main__":
     R = np.concatenate((R, np.ones((1, mic_n)) * mic_center[2]), axis=0)
 
     # Finally, we make the microphone array object as usual
-    # second argument is the sampling frequency
-    
-    # mics = pra.MicrophoneArray(R, Fs)
+    # second argument is the sampling frequency    
 
     mics = pra.Beamformer(R, Fs, N=N, Lg=Lg)
     room.add_microphone_array(mics)
@@ -140,4 +130,3 @@ if __name__ == "__main__":
     # 3개의 소스에 대해서 한 소스로만 빔포밍을 하는 것을 불가능하고
     # rake_mvdr_filters는 두개의 소스에 대한 빔포밍 함수임을 알 수 있다.
     # 이에 따라 signal1과 signal2를 비슷한 위치 (1,4,1.5) (1,3,1.5)에 두어 signal1으로 빔포밍하여도 signal2도 빔포밍 받은 효과를 줄 수 있다.
-    
