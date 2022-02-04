@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.io import wavfile
 import pyroomacoustics as pra
+# from pyroomacoustics.directivities import DirectivityPattern, DirectionVector, CardioidFamily
 import soundfile as sf
 import samplerate
 from scipy import signal
@@ -25,7 +26,31 @@ def resample(ori_rate,new_rate,signal):
     return signal
 
 
+def circular_3d_coords(center, radius, num, direction = 'virtical'):
+
+    list_coords = []
+
+    if direction == 'vertical':
+        for i in range(num):
+            list_coords.append([center[0], center[1] + radius*np.sin(2*i*np.pi/num), center[2] + radius*np.cos(2*i*np.pi/num)])
+
+    elif direction == 'horizontal':
+        for i in range(num):
+            list_coords.append([center[0]+ radius*np.sin(2*i*np.pi/num), center[1]+ radius*np.cos(2*i*np.pi/num), center[2] ])
+    list_coords = [list(reversed(col)) for col in zip(*list_coords)]
+
+    return np.array(list_coords)
+        
+
+
+
 if __name__ == "__main__":
+
+    '''
+        s1, s1 ,s2 ,n1  
+        sum + rir 
+        rakeMVDR, delay and sum, rake pertual MVDR  -- 스펙트로그램까지 
+    '''
 
     # Some simulation parameters
     Fs = 8000
@@ -88,14 +113,13 @@ if __name__ == "__main__":
 
     # center of array as column vector
     mic_center = np.array([8, 3, 1])
-
     # microphone array radius
     mic_radius = 0.05
-
-
     # Create the 2D circular points
-    R = pra.circular_2D_array(mic_center[:2], mic_n, phi, mic_radius)
-    R = np.concatenate((R, np.ones((1, mic_n)) * mic_center[2]), axis=0)
+    # R = pra.circular_2D_array(mic_center[:2], mic_n, phi, mic_radius)
+    # R = np.concatenate((R, np.ones((1, mic_n)) * mic_center[2]), axis=0)
+
+    R = circular_3d_coords(mic_center, mic_radius, mic_n, 'vertical')
 
     # Finally, we make the microphone array object as usual
     # second argument is the sampling frequency    
@@ -108,6 +132,12 @@ if __name__ == "__main__":
     mics = pra.Beamformer(R, Fs, N, Lg=Lg)
     room.add_microphone_array(mics)
     
+
+    fig, ax = room.plot(freq=[500, 1000, 2000, 4000], img_order=0)
+    # ax.legend(['500', '1000', '2000', '4000'])
+
+    plt.show()
+
     room.mic_array = mics
     room.compute_rir()
     room.simulate()
