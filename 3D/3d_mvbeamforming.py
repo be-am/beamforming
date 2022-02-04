@@ -8,6 +8,8 @@ import samplerate
 from scipy import signal
 from scipy.signal import butter, lfilter
 import os
+import librosa
+import librosa.display
 
 
 def preprocess_data(signal, Fs):
@@ -25,12 +27,36 @@ def resample(ori_rate,new_rate,signal):
     return signal
 
 
+def circular_3d_coords(center, radius, num, direction = 'virtical'):
+    
+    list_coords = []
+
+    if direction == 'vertical':
+        for i in range(num):
+            list_coords.append([center[0], center[1] + radius*np.sin(2*i*np.pi/num), center[2] + radius*np.cos(2*i*np.pi/num)])
+
+    elif direction == 'horizontal':
+        for i in range(num):
+            list_coords.append([center[0]+ radius*np.sin(2*i*np.pi/num), center[1]+ radius*np.cos(2*i*np.pi/num), center[2] ])
+    list_coords = [list(reversed(col)) for col in zip(*list_coords)]
+
+    return np.array(list_coords)
+
+
 if __name__ == "__main__":
+
+    # Spectrogram figure properties
+    figsize = (15, 7)  # figure size
+    fft_size = 512  # fft size for analysis
+    fft_hop = 8  # hop between analysis frame
+    fft_zp = 512  # zero padding
+    analysis_window = pra.hann(fft_size)
+    t_cut = 0.83  # length in [s] to remove at end of signal (no sound)
 
     # Some simulation parameters
     Fs = 8000
     absorption = 0.1
-    max_order_sim = 1
+    max_order_sim = 0
     sigma2_n = 5e-7
 
     # Microphone array design parameters
@@ -93,9 +119,7 @@ if __name__ == "__main__":
     mic_radius = 0.05
 
 
-    # Create the 2D circular points
-    R = pra.circular_2D_array(mic_center[:2], mic_n, phi, mic_radius)
-    R = np.concatenate((R, np.ones((1, mic_n)) * mic_center[2]), axis=0)
+    R = circular_3d_coords(mic_center, mic_radius, mic_n, 'vertical')
 
     # Finally, we make the microphone array object as usual
     # second argument is the sampling frequency    
@@ -110,6 +134,7 @@ if __name__ == "__main__":
     # Design the beamforming filters using some of the images sources
     good_sources = room.sources[0][: max_order_design + 1]
     bad_sources1 = room.sources[2][: max_order_design + 1]
+    
     mics.rake_mvdr_filters(
         good_sources, bad_sources1, sigma2_n * np.eye(mics.Lg * mics.M), delay=0
     )
@@ -119,10 +144,26 @@ if __name__ == "__main__":
 
     # save to output file
     out_RakeMVDR = pra.normalize(pra.highpass(output, 7000))
-    wavfile.write(path + "/output_samples/all_mix.wav", Fs, room.mic_array.signals[-1,:].astype(np.float32))
-    wavfile.write(path + "/output_samples/output_RakeMVDR.wav", Fs, out_RakeMVDR.astype(np.float32))
+                        
+    wavfile.write(path + "/output_samples/all_mix_2ms.wav", Fs, room.mic_array.signals[-1,:].astype(np.float32))
+    wavfile.write(path + "/output_samples/output_RakeMVDR_2ms.wav", Fs, out_RakeMVDR.astype(np.float32))
 
-    room.plot(freq=[6000],img_order=0)
+    room.plot(freq=[7000],img_order=0)
+    plt.show()
+
+
+    dSNR = pra.dB(room.direct_snr(mics.center[:, 0], source=0), power=True)
+    print("The direct SNR for good source is " + str(dSNR))
+
+    S = librosa.feature.melspectrogram(y=out_RakeMVDR, sr=Fs,n_fft=fft_size,hop_length=fft_hop, n_mels=128,window=analysis_window) 
+    
+    log_S = librosa.amplitude_to_db(S, ref=np.max)
+    plt.figure(figsize=(12, 4))
+    librosa.display.specshow(log_S, sr=Fs, x_axis='time', y_axis='mel')
+    plt.title('mel power spectrogram')
+    plt.colorbar(format='%+02.0f dB')
+    plt.tight_layout()
+    plt.savefig(path + "/output_samples/spectrograms_RakeMvdr_2ms.png", dpi=150)
     plt.show()
 
 
