@@ -11,6 +11,7 @@ from scipy.signal import butter, lfilter
 import os
 import librosa
 import librosa.display
+import pyroomacoustics.directivities
 
 
 def preprocess_data(signal, Fs):
@@ -116,9 +117,13 @@ if __name__ == "__main__":
     )
 
     # Add two source somewhere in the room
-    room.add_source([1,3,1.5],signal=signal1,delay=0)
-    room.add_source([1,4,1.5],signal=signal2,delay=0) 
-    room.add_source([3,1,4],signal=noise,delay=0)
+    sig1_pos = [1,3,1.5]
+    sig2_pos = [1,4,1.5]
+    noise_pos = [3,1,4]
+
+    room.add_source(sig1_pos,signal=signal1,delay=0)
+    room.add_source(sig2_pos,signal=signal2,delay=0) 
+    room.add_source(noise_pos,signal=noise,delay=0)
 
 
     # center of array as column vector
@@ -169,6 +174,7 @@ if __name__ == "__main__":
     wavfile.write(
         path + "/output_samples/output_PerceptualMvdr_45ms.wav", Fs, out_RakePerceptual.astype(np.float32)
     )
+
 
     room.plot(freq=[7000],img_order=0)
     plt.show()
