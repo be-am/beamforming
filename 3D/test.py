@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.io import wavfile
 import pyroomacoustics as pra
+# from pyroomacoustics.directivities import DirectivityPattern, DirectionVector, CardioidFamily
 import soundfile as sf
 import samplerate
 from scipy import signal
@@ -10,8 +11,8 @@ from scipy.signal import butter, lfilter
 import os
 import librosa
 import librosa.display
+import pyroomacoustics.directivities
 
-from sklearn.preprocessing import minmax_scale
 
 def preprocess_data(signal, Fs):
     np.array(signal, dtype=float)
@@ -29,7 +30,7 @@ def resample(ori_rate,new_rate,signal):
 
 
 def circular_3d_coords(center, radius, num, direction = 'virtical'):
-    
+
     list_coords = []
 
     if direction == 'vertical':
@@ -42,22 +43,30 @@ def circular_3d_coords(center, radius, num, direction = 'virtical'):
     list_coords = [list(reversed(col)) for col in zip(*list_coords)]
 
     return np.array(list_coords)
+        
+
 
 
 if __name__ == "__main__":
 
+    '''
+        s1, s1 ,s2 ,n1  
+        sum + rir 
+        rakeMVDR, delay and sum, rake pertual MVDR  -- 스펙트로그램까지 
+    '''
     # Spectrogram figure properties
     figsize = (15, 7)  # figure size
     fft_size = 512  # fft size for analysis
-    fft_hop = 8  # hop between analysis frame
+    fft_hop = 4  # hop between analysis frame
     fft_zp = 512  # zero padding
     analysis_window = pra.hann(fft_size)
-    t_cut = 0.83  # length in [s] to remove at end of signal (no sound)
+    t_cut = 0.83  # length in [s] to remove at end of signal (no sound)    
+
 
     # Some simulation parameters
     Fs = 8000
     absorption = 0.1
-    max_order_sim = 3
+    max_order_sim = 2
     sigma2_n = 5e-7
 
     # Microphone array design parameters
@@ -108,25 +117,41 @@ if __name__ == "__main__":
     )
 
     # Add two source somewhere in the room
-    room.add_source([1,3,1.5],signal=signal1,delay=0)
-    room.add_source([1,4,1.5],signal=signal2,delay=0) 
-    room.add_source([3,1,4],signal=noise,delay=0)
+    sig1_pos = [1,3,1.5]
+    sig2_pos = [1,4,1.5]
+    noise_pos = [3,1,4]
+
+    room.add_source(sig1_pos,signal=signal1,delay=0)
+    room.add_source(sig2_pos,signal=signal2,delay=0) 
+    room.add_source(noise_pos,signal=noise,delay=0)
 
 
     # center of array as column vector
     mic_center = np.array([8, 3, 1])
-
     # microphone array radius
     mic_radius = 0.05
-
+    # Create the 2D circular points
+    # R = pra.circular_2D_array(mic_center[:2], mic_n, phi, mic_radius)
+    # R = np.concatenate((R, np.ones((1, mic_n)) * mic_center[2]), axis=0)
 
     R = circular_3d_coords(mic_center, mic_radius, mic_n, 'vertical')
 
     # Finally, we make the microphone array object as usual
     # second argument is the sampling frequency    
 
-    mics = pra.Beamformer(R, Fs, N=N, Lg=Lg)
+    """
+    Rake Perceptual simulation
+    """
+
+    # compute beamforming filters
+    mics = pra.Beamformer(R, Fs, N, Lg=Lg)
     room.add_microphone_array(mics)
+    
+
+    fig, ax = room.plot(freq=[500, 1000, 2000, 4000], img_order=0)
+    # ax.legend(['500', '1000', '2000', '4000'])
+
+    plt.show()
 
     room.mic_array = mics
     room.compute_rir()
@@ -136,7 +161,7 @@ if __name__ == "__main__":
     good_sources = room.sources[0][: max_order_design + 1]
     bad_sources1 = room.sources[2][: max_order_design + 1]
     
-    mics.rake_mvdr_filters(
+    mics.rake_perceptual_filters(
         good_sources, bad_sources1, sigma2_n * np.eye(mics.Lg * mics.M), delay=0
     )
 
@@ -144,35 +169,60 @@ if __name__ == "__main__":
     output = mics.process()
 
     # save to output file
-    out_RakeMVDR = pra.normalize(pra.highpass(output, 7000))
-    # all_mix = pra.normalize(pra.highpass(room.mic_array.signals[-1,:].astype(np.float32),7000))           z         
-    test_data = pra.normalize(room.mic_array.signals[4,:])
+    out_RakePerceptual = pra.normalize(pra.highpass(output, 7000))
     
+    wavfile.write(
+        path + "/output_samples/output_PerceptualMvdr_45ms.wav", Fs, out_RakePerceptual.astype(np.float32)
+    )
 
-
-    wavfile.write(path + "/output_samples/all_mix_45ms.wav", Fs, test_data.astype(np.float32))
-    wavfile.write(path + "/output_samples/output_RakeMVDR_45ms.wav", Fs, out_RakeMVDR.astype(np.float32))
 
     room.plot(freq=[7000],img_order=0)
     plt.show()
-
-
-    dSNR = pra.dB(room.direct_snr(mics.center[:, 0], source=0), power=True)
-    print("The direct SNR for good source is " + str(dSNR)) 
-
-    S = librosa.feature.melspectrogram(y=test_data, sr=Fs,n_fft=fft_size,hop_length=fft_hop, n_mels=128,window=analysis_window) 
     
-    log_S = librosa.amplitude_to_db(S, ref=np.max)
-    plt.figure(figsize=(12, 4))
-    librosa.display.specshow(log_S, sr=Fs, x_axis='time', y_axis='mel')
-    plt.title('mel power spectrogram')
-    plt.colorbar(format='%+02.0f dB')
-    plt.tight_layout()
-    plt.savefig(path + "/output_samples/spectrograms_all_45ms.png", dpi=150)
+    # dSNR = pra.dB(room.direct_snr(mics.center[:, 0], source=0), power=True)
+    # print("The direct SNR for good source is " + str(dSNR))
+
+    # S = librosa.feature.melspectrogram(y=out_RakePerceptual, sr=Fs,n_fft=fft_size,hop_length=fft_hop, n_mels=128,window=analysis_window) 
+    
+    # log_S = librosa.amplitude_to_db(S, ref=np.max)
+    # plt.figure(figsize=(12, 4))
+    # librosa.display.specshow(log_S, sr=Fs, x_axis='time', y_axis='mel')
+    # plt.title('mel power spectrogram')
+    # plt.colorbar(format='%+02.0f dB')
+    # plt.tight_layout()
+    # plt.savefig(path + "/output_samples/spectrograms_PerceptualMvdr_45ms.png", dpi=150)
+    # plt.show()
+
+
+    room_mv_bf = pra.ShoeBox([10,5], fs=Fs, max_order=0)
+    source1 = np.array([1, 3])
+    source2 = np.array([1, 4])
+    interferer = np.array([3, 1])
+    room_mv_bf.add_source(source1, delay=0., signal=signal1)
+    room_mv_bf.add_source(source2, delay=0., signal=signal2)
+    room_mv_bf.add_source(interferer, delay=0., signal=noise)
+
+    center = [8, 3]; radius = 37.5e-3
+    fft_len = 512
+    echo = pra.circular_2D_array(center=center, M=6, phi0=0, radius=radius)
+    echo = np.concatenate((echo, np.array(center, ndmin=2).T), axis=1)
+    mics = pra.Beamformer(echo, room_mv_bf.fs, N=fft_len)
+    room_mv_bf.add_microphone_array(mics)
+
+    mic_noise = 30
+    R_n = 10**((mic_noise-94)/20)*np.eye(fft_len*room_mv_bf.mic_array.M)
+    room_mv_bf.mic_array.rake_perceptual_filters(room_mv_bf.sources[1][:max_order_design + 1], interferer = room_mv_bf.sources[2][:max_order_design + 1], R_n = R_n)
+
+    fig, ax = room_mv_bf.plot(freq = [500, 1000, 2000, 4000], img_order=0)
+    ax.legend(['500', '1000', '2000','4000'])
+    fig.set_size_inches(20, 8)
+    ax.set_xlim([-3,17])
+    ax.set_ylim([-3,17])
+    room_mv_bf.compute_rir()
+    room_mv_bf.simulate()
+
+    #beamforming process
+    sig_mv = room_mv_bf.mic_array.process(FD=False)
+    out_mv = pra.normalize(pra.highpass(sig_mv, 7000))
+
     plt.show()
-
-
-    # https://github.com/LCAV/pyroomacoustics/issues/137 에 따르면 
-    # 3개의 소스에 대해서 한 소스로만 빔포밍을 하는 것을 불가능하고
-    # rake_mvdr_filters는 두개의 소스에 대한 빔포밍 함수임을 알 수 있다.
-    # 이에 따라 signal1과 signal2를 비슷한 위치 (1,4,1.5) (1,3,1.5)에 두어 signal1으로 빔포밍하여도 signal2도 빔포밍 받은 효과를 줄 수 있다.

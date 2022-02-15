@@ -44,6 +44,20 @@ def circular_3d_coords(center, radius, num, direction = 'virtical'):
 
     return np.array(list_coords)
         
+def angle_3d(mic_loc, source_loc):
+    pos = source_loc - mic_loc
+    azimuth_vec = [0,0,1]
+    latitude_vec = [pos[0],0,pos[2]]
+
+    pos_u = pos / np.linalg.norm(pos)
+    azimuth_vec_u = azimuth_vec / np.linalg.norm(azimuth_vec)
+    latitude_vec_u = latitude_vec / np.linalg.norm(latitude_vec)
+
+    azimuth = np.arccos(np.clip(np.dot(pos_u, azimuth_vec_u), -1.0, 1.0))
+    latitude = np.arccos(np.clip(np.dot(pos_u, latitude_vec_u), -1.0, 1.0))
+
+
+    return azimuth, latitude
 
 
 
@@ -66,8 +80,10 @@ if __name__ == "__main__":
     # Some simulation parameters
     Fs = 8000
     absorption = 0.1
-    max_order_sim = 2
+    max_order_sim = 0
     sigma2_n = 5e-7
+    c = 343.
+    freq_range = [300, 3500]
 
     # Microphone array design parameters
     mic_n = 8  # number of microphones
@@ -81,6 +97,7 @@ if __name__ == "__main__":
 
     # Define the FFT length
     N = 1024
+    nfft = 256
 
     #Define two signal and one noise
     path = os.path.dirname(__file__) 
@@ -116,8 +133,7 @@ if __name__ == "__main__":
         sigma2_awgn=sigma2_n,
     )
 
-    # Add two source somewhere in the room
-    sig1_pos = [1,3,1.5]
+    sig1_pos = [1,2,1.5]
     sig2_pos = [1,4,1.5]
     noise_pos = [3,1,4]
 
@@ -125,59 +141,58 @@ if __name__ == "__main__":
     room.add_source(sig2_pos,signal=signal2,delay=0) 
     room.add_source(noise_pos,signal=noise,delay=0)
 
-
-    # center of array as column vector
     mic_center = np.array([8, 3, 1])
+
+    print('sig1_pos = ', angle_3d(mic_center, sig1_pos))
+    print('sig2_pos = ', angle_3d(mic_center, sig2_pos))
+    print('noise_pos = ', angle_3d(mic_center, noise_pos))
     # microphone array radius
     mic_radius = 0.05
-    # Create the 2D circular points
-    # R = pra.circular_2D_array(mic_center[:2], mic_n, phi, mic_radius)
-    # R = np.concatenate((R, np.ones((1, mic_n)) * mic_center[2]), axis=0)
-
     R = circular_3d_coords(mic_center, mic_radius, mic_n, 'vertical')
+    room.add_microphone_array(pra.MicrophoneArray(R, fs=room.fs))
 
-    # Finally, we make the microphone array object as usual
-    # second argument is the sampling frequency    
-
-    """
-    Rake Perceptual simulation
-    """
-
-    # compute beamforming filters
-    mics = pra.Beamformer(R, Fs, N, Lg=Lg)
-    room.add_microphone_array(mics)
-    
-
-    fig, ax = room.plot(freq=[500, 1000, 2000, 4000], img_order=0)
-    # ax.legend(['500', '1000', '2000', '4000'])
-
-    plt.show()
-
-    room.mic_array = mics
     room.compute_rir()
     room.simulate()
 
+    X = pra.transform.stft.analysis(room.mic_array.signals.T, nfft, nfft // 2)
+    X = X.transpose([2, 1, 0])
+
+    algo_names = ['SRP', 'MUSIC', 'TOPS']
+    spatial_resp = dict()
+
+    for algo_name in algo_names:
+    # Construct the new DOA object
+    # the max_four parameter is necessary for FRIDA only
+        doa = pra.doa.algorithms[algo_name](R, Fs, nfft, c=c, num_src=3, max_four=4, dim = 3)
+
+        # this call here perform localization on the frames in X
+        doa.locate_sources(X, freq_range=freq_range)
+        
+        # store spatial response
+        if algo_name is 'FRIDA':
+            spatial_resp[algo_name] = np.abs(doa._gen_dirty_img())
+        else:
+            spatial_resp[algo_name] = doa.grid.values
+            
+        # normalize   
+        min_val = spatial_resp[algo_name].min()
+        max_val = spatial_resp[algo_name].max()
+        spatial_resp[algo_name] = (spatial_resp[algo_name] - min_val) / (max_val - min_val)
+        print('algorithm = ', algo_name)
+        print('azimuth = ', doa.azimuth_recon)
+        print('latitude = ', doa.colatitude_recon)
+
+
     # Design the beamforming filters using some of the images sources
-    good_sources = room.sources[0][: max_order_design + 1]
-    bad_sources1 = room.sources[2][: max_order_design + 1]
+
     
-    mics.rake_perceptual_filters(
-        good_sources, bad_sources1, sigma2_n * np.eye(mics.Lg * mics.M), delay=0
-    )
-
-    # process the signal
-    output = mics.process()
-
-    # save to output file
-    out_RakePerceptual = pra.normalize(pra.highpass(output, 7000))
-    
-    wavfile.write(
-        path + "/output_samples/output_PerceptualMvdr_45ms.wav", Fs, out_RakePerceptual.astype(np.float32)
-    )
+    # wavfile.write(
+    #     path + "/output_samples/output_PerceptualMvdr_45ms.wav", Fs, out_RakePerceptual.astype(np.float32)
+    # )
 
 
-    room.plot(freq=[7000],img_order=0)
-    plt.show()
+    # room.plot(freq=[7000],img_order=0)
+    # plt.show()
     
     # dSNR = pra.dB(room.direct_snr(mics.center[:, 0], source=0), power=True)
     # print("The direct SNR for good source is " + str(dSNR))
@@ -192,37 +207,3 @@ if __name__ == "__main__":
     # plt.tight_layout()
     # plt.savefig(path + "/output_samples/spectrograms_PerceptualMvdr_45ms.png", dpi=150)
     # plt.show()
-
-
-    room_mv_bf = pra.ShoeBox([10,5], fs=Fs, max_order=0)
-    source1 = np.array([1, 3])
-    source2 = np.array([1, 4])
-    interferer = np.array([3, 1])
-    room_mv_bf.add_source(source1, delay=0., signal=signal1)
-    room_mv_bf.add_source(source2, delay=0., signal=signal2)
-    room_mv_bf.add_source(interferer, delay=0., signal=noise)
-
-    center = [8, 3]; radius = 37.5e-3
-    fft_len = 512
-    echo = pra.circular_2D_array(center=center, M=6, phi0=0, radius=radius)
-    echo = np.concatenate((echo, np.array(center, ndmin=2).T), axis=1)
-    mics = pra.Beamformer(echo, room_mv_bf.fs, N=fft_len)
-    room_mv_bf.add_microphone_array(mics)
-
-    mic_noise = 30
-    R_n = 10**((mic_noise-94)/20)*np.eye(fft_len*room_mv_bf.mic_array.M)
-    room_mv_bf.mic_array.rake_perceptual_filters(room_mv_bf.sources[1][:max_order_design + 1], interferer = room_mv_bf.sources[2][:max_order_design + 1], R_n = R_n)
-
-    fig, ax = room_mv_bf.plot(freq = [500, 1000, 2000, 4000], img_order=0)
-    ax.legend(['500', '1000', '2000','4000'])
-    fig.set_size_inches(20, 8)
-    ax.set_xlim([-3,17])
-    ax.set_ylim([-3,17])
-    room_mv_bf.compute_rir()
-    room_mv_bf.simulate()
-
-    #beamforming process
-    sig_mv = room_mv_bf.mic_array.process(FD=False)
-    out_mv = pra.normalize(pra.highpass(sig_mv, 7000))
-
-    plt.show()

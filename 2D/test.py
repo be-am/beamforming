@@ -1,24 +1,40 @@
+import pyroomacoustics as pra
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.io import wavfile
-from scipy.signal import fftconvolve
-import IPython
-import pyroomacoustics as pra
+from pyroomacoustics.directivities import (
+    DirectivityPattern,
+    DirectionVector,
+    CardioidFamily,
+)
 
-# center of array as column vector
-mic_center = np.array([5, 5, 2])
 
-# microphone array radius
-mic_radius = 0.05
+pattern = DirectivityPattern.HYPERCARDIOID
+orientation = DirectionVector(azimuth=0, colatitude=0, degrees=True)
 
-# number of elements
-mic_n = 8
+# create room
+room = pra.ShoeBox(
+    p=[7, 7, 3],
+    materials=pra.Material(0.4),
+    fs=16000,
+    max_order=40,
+)
 
-# Create the 2D circular points
-R = pra.circular_2D_array(mic_center[:2], mic_n, 0, mic_radius)
-R = np.concatenate((R, np.ones((1, mic_n)) * mic_center[2]), axis=0)
+# add source
+room.add_source([1, 1, 1.7])
 
-# Finally, we make the microphone array object as usual
-# second argument is the sampling frequency
-mics = pra.MicrophoneArray(R, 16000)
+# add linear microphone array
+M = 3
+R = pra.linear_2D_array(center=[5, 5], M=M, phi=0, d=0.7)
+R = np.concatenate((R, np.ones((1, M))))
+directivity = CardioidFamily(orientation=orientation, pattern_enum=pattern)
+room.add_microphone_array(R, directivity=directivity)
 
+# plot room
+fig, ax = room.plot()
+ax.set_xlim([-1, 8])
+ax.set_ylim([-1, 8])
+ax.set_zlim([-1, 4])
+
+# plot
+room.plot_rir()
+plt.show()
