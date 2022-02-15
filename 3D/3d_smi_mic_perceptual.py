@@ -12,6 +12,8 @@ import os
 import librosa
 import librosa.display
 import pyroomacoustics.directivities
+from sympy import *
+from mic_location import DoughertyLogSpiral, circular_3d_coords
 
 
 def preprocess_data(signal, Fs):
@@ -57,7 +59,7 @@ if __name__ == "__main__":
     # Spectrogram figure properties
     figsize = (15, 7)  # figure size
     fft_size = 512  # fft size for analysis
-    fft_hop = 4  # hop between analysis frame
+    fft_hop = 8  # hop between analysis frame
     fft_zp = 512  # zero padding
     analysis_window = pra.hann(fft_size)
     t_cut = 0.83  # length in [s] to remove at end of signal (no sound)    
@@ -133,8 +135,7 @@ if __name__ == "__main__":
     # Create the 2D circular points
     # R = pra.circular_2D_array(mic_center[:2], mic_n, phi, mic_radius)
     # R = np.concatenate((R, np.ones((1, mic_n)) * mic_center[2]), axis=0)
-
-    R = circular_3d_coords(mic_center, mic_radius, mic_n, 'vertical')
+    R = DoughertyLogSpiral(mic_center, rmax = 0.15, rmin = 0.025, v = 87 *np.pi/180, n_mics = 112, direction = 'vertical')
 
     # Finally, we make the microphone array object as usual
     # second argument is the sampling frequency    
@@ -172,57 +173,57 @@ if __name__ == "__main__":
     out_RakePerceptual = pra.normalize(pra.highpass(output, 7000))
     
     wavfile.write(
-        path + "/output_samples/output_PerceptualMvdr_45ms.wav", Fs, out_RakePerceptual.astype(np.float32)
+        path + "/output_samples/output_Perceptual_smiMic_45ms.wav", Fs, out_RakePerceptual.astype(np.float32)
     )
 
 
     room.plot(freq=[7000],img_order=0)
     plt.show()
     
-    # dSNR = pra.dB(room.direct_snr(mics.center[:, 0], source=0), power=True)
-    # print("The direct SNR for good source is " + str(dSNR))
+    dSNR = pra.dB(room.direct_snr(mics.center[:, 0], source=0), power=True)
+    print("The direct SNR for good source is " + str(dSNR))
 
-    # S = librosa.feature.melspectrogram(y=out_RakePerceptual, sr=Fs,n_fft=fft_size,hop_length=fft_hop, n_mels=128,window=analysis_window) 
+    S = librosa.feature.melspectrogram(y=out_RakePerceptual, sr=Fs,n_fft=fft_size,hop_length=fft_hop, n_mels=128,window=analysis_window) 
     
-    # log_S = librosa.amplitude_to_db(S, ref=np.max)
-    # plt.figure(figsize=(12, 4))
-    # librosa.display.specshow(log_S, sr=Fs, x_axis='time', y_axis='mel')
-    # plt.title('mel power spectrogram')
-    # plt.colorbar(format='%+02.0f dB')
-    # plt.tight_layout()
-    # plt.savefig(path + "/output_samples/spectrograms_PerceptualMvdr_45ms.png", dpi=150)
-    # plt.show()
-
-
-    room_mv_bf = pra.ShoeBox([10,5], fs=Fs, max_order=0)
-    source1 = np.array([1, 3])
-    source2 = np.array([1, 4])
-    interferer = np.array([3, 1])
-    room_mv_bf.add_source(source1, delay=0., signal=signal1)
-    room_mv_bf.add_source(source2, delay=0., signal=signal2)
-    room_mv_bf.add_source(interferer, delay=0., signal=noise)
-
-    center = [8, 3]; radius = 37.5e-3
-    fft_len = 512
-    echo = pra.circular_2D_array(center=center, M=6, phi0=0, radius=radius)
-    echo = np.concatenate((echo, np.array(center, ndmin=2).T), axis=1)
-    mics = pra.Beamformer(echo, room_mv_bf.fs, N=fft_len)
-    room_mv_bf.add_microphone_array(mics)
-
-    mic_noise = 30
-    R_n = 10**((mic_noise-94)/20)*np.eye(fft_len*room_mv_bf.mic_array.M)
-    room_mv_bf.mic_array.rake_perceptual_filters(room_mv_bf.sources[1][:max_order_design + 1], interferer = room_mv_bf.sources[2][:max_order_design + 1], R_n = R_n)
-
-    fig, ax = room_mv_bf.plot(freq = [500, 1000, 2000, 4000], img_order=0)
-    ax.legend(['500', '1000', '2000','4000'])
-    fig.set_size_inches(20, 8)
-    ax.set_xlim([-3,17])
-    ax.set_ylim([-3,17])
-    room_mv_bf.compute_rir()
-    room_mv_bf.simulate()
-
-    #beamforming process
-    sig_mv = room_mv_bf.mic_array.process(FD=False)
-    out_mv = pra.normalize(pra.highpass(sig_mv, 7000))
-
+    log_S = librosa.amplitude_to_db(S, ref=np.max)
+    plt.figure(figsize=(12, 4))
+    librosa.display.specshow(log_S, sr=Fs, x_axis='time', y_axis='mel')
+    plt.title('mel power spectrogram')
+    plt.colorbar(format='%+02.0f dB')
+    plt.tight_layout()
+    plt.savefig(path + "/output_samples/spectrograms_smi_PerceptualMvdr_45ms.png", dpi=150)
     plt.show()
+
+
+    # room_mv_bf = pra.ShoeBox([10,5], fs=Fs, max_order=0)
+    # source1 = np.array([1, 3])
+    # source2 = np.array([1, 4])
+    # interferer = np.array([3, 1])
+    # room_mv_bf.add_source(source1, delay=0., signal=signal1)
+    # room_mv_bf.add_source(source2, delay=0., signal=signal2)
+    # room_mv_bf.add_source(interferer, delay=0., signal=noise)
+
+    # center = [8, 3]; radius = 37.5e-3
+    # fft_len = 512
+    # echo = pra.circular_2D_array(center=center, M=6, phi0=0, radius=radius)
+    # echo = np.concatenate((echo, np.array(center, ndmin=2).T), axis=1)
+    # mics = pra.Beamformer(echo, room_mv_bf.fs, N=fft_len)
+    # room_mv_bf.add_microphone_array(mics)
+
+    # mic_noise = 30
+    # R_n = 10**((mic_noise-94)/20)*np.eye(fft_len*room_mv_bf.mic_array.M)
+    # room_mv_bf.mic_array.rake_perceptual_filters(room_mv_bf.sources[1][:max_order_design + 1], interferer = room_mv_bf.sources[2][:max_order_design + 1], R_n = R_n)
+
+    # fig, ax = room_mv_bf.plot(freq = [500, 1000, 2000, 4000], img_order=0)
+    # ax.legend(['500', '1000', '2000','4000'])
+    # fig.set_size_inches(20, 8)
+    # ax.set_xlim([-3,17])
+    # ax.set_ylim([-3,17])
+    # room_mv_bf.compute_rir()
+    # room_mv_bf.simulate()
+
+    # #beamforming process
+    # sig_mv = room_mv_bf.mic_array.process(FD=False)
+    # out_mv = pra.normalize(pra.highpass(sig_mv, 7000))
+
+    # plt.show()
